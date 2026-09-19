@@ -114,7 +114,9 @@ async def process_voice(message: Message):
 
         ai_response = completion.choices[0].message.content.strip()
 
-        # Очистка JSON от возможных тегов markdown
-        if ai_response.startswith("```"):
-            ai_response = (
-                ai_response.replace("
+                # Очистка JSON от возможных тегов markdown
+        ai_response = ai_response.strip()
+        if "```" in ai_response:
+            ai_response = ai_response.replace("```json", "").replace("```", "").strip()
+
+        data = json.loads(ai_response)

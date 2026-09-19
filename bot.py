@@ -81,13 +81,17 @@ async def process_voice(message: Message):
 - "urgency": срочность (Высокая, Средняя, Обычная)
 """
 
+                # Актуальные действующие модели Groq
         candidate_models = [
-            "llama-3.1-8b-instant",
             "llama-3.3-70b-versatile",
-            "mixtral-8x7b-32768",
+            "llama-3.1-8b-instant",
+            "llama-3.2-3b-preview",
+            "llama-3.2-1b-preview",
         ]
 
         completion = None
+        last_error = "Неизвестная ошибка"
+
         for model_name in candidate_models:
             try:
                 completion = groq_client.chat.completions.create(
@@ -97,11 +101,12 @@ async def process_voice(message: Message):
                 )
                 break
             except Exception as err:
+                last_error = str(err)
                 print(f"Модель {model_name} пропущена: {err}")
                 continue
 
         if not completion:
-            raise Exception("Ни одна из доступных нейросетей Groq не ответила.")
+            raise Exception(f"Ошибка Groq: {last_error}")
 
         ai_response = completion.choices[0].message.content.strip()
 

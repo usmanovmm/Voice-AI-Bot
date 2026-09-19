@@ -14,7 +14,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if not BOT_TOKEN or not ADMIN_ID or not GROQ_API_KEY:
     raise ValueError(
-        "ОШИБКА: Заполните BOT_TOKEN, ADMIN_ID и GROQ_API_KEY в настройках Render!"
+        "ОШИБКА: Проверьте переменные BOT_TOKEN, ADMIN_ID и GROQ_API_KEY в настройках Render!"
     )
 
 ADMIN_ID = int(ADMIN_ID)
@@ -28,8 +28,8 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 async def cmd_start(message: Message):
     await message.answer(
         "👋 **Привет! Я голосовой ИИ-ассистент.**\n\n"
-        "🎤 Отправьте мне **голосовое сообщение** на русском, узбекском или смешанном языке. "
-        "Я распознаю речь и автоматически сформирую готовую карточку заявки!"
+        "🎤 Отправьте мне **голосовое сообщение** на русском, узбекском или смешанном языке, "
+        "и я автоматически распознаю его и сформирую готовую карточку заявки!"
     )
 
 
@@ -42,11 +42,11 @@ async def process_voice(message: Message):
     local_filename = f"voice_{message.voice.file_id}.ogg"
 
     try:
-        # Скачивание файла из Telegram
+        # 1. Скачивание голосового файла из Telegram
         file_info = await bot.get_file(message.voice.file_id)
         await bot.download_file(file_info.file_path, local_filename)
 
-        # Распознавание речи через Groq Whisper
+        # 2. Распознавание речи через Groq Whisper
         with open(local_filename, "rb") as audio_file:
             transcription = groq_client.audio.transcriptions.create(
                 file=(local_filename, audio_file.read()),
@@ -58,7 +58,7 @@ async def process_voice(message: Message):
 
         if not recognized_text:
             await status_msg.edit_text(
-                "⚠️ Не удалось распознать текст из голосового сообщения. Попробуйте записать еще раз."
+                "⚠️ Не удалось распознать звук. Попробуйте записать еще раз."
             )
             if os.path.exists(local_filename):
                 os.remove(local_filename)
@@ -68,29 +68,34 @@ async def process_voice(message: Message):
             "🧠 *Анализирую заявку с помощью ИИ...*", parse_mode="Markdown"
         )
 
+        # 3. Подготовка промпта для анализа
         prompt = f"""
-Ты — менеджер отдела продаж. 
+Ты — профессиональный менеджер отдела продаж. 
 Ниже распознанный текст голосового сообщения от клиента (русский, узбекский или смешанный язык):
 
 "{recognized_text}"
 
 Верни ответ STRICTLY в формате JSON без какого-либо дополнительного текста со следующими полями:
 - "client_intent": суть заказа или вопроса клиента
-- "details": ключевые детали (количество, даты, названия товаров, бюджет, адрес)
+- "details": ключевые детали (количество, даты, названия товаров, бюджет, адрес и т.д.)
 - "language_detected": язык речи (Русский, Узбекский, Смешанный)
 - "urgency": срочность (Высокая, Средняя, Обычная)
 """
 
-                        # Только 100% стабильные Production-модели Groq (без preview)
-        candidate_models = [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant"
-        ]
+        # 4. Динамическое получение списка моделей из твоего аккаунта Groq
+        models_list = groq_client.models.list().data
+        
+        # Отфильтровываем аудио-модели whisper, оставляем только текстовые
+        chat_models = [m.id for m in models_list if "whisper" not in m.id.lower()]
+
+        if not chat_models:
+            raise Exception("В аккаунте Groq не найдено ни одной доступной текстовой модели!")
 
         completion = None
-        last_error = ""
+        last_err = ""
 
-        for model_name in candidate_models:
+        # Пробуем по очереди доступные в твоем аккаунте модели
+        for model_name in chat_models:
             try:
                 completion = groq_client.chat.completions.create(
                     model=model_name,
@@ -98,33 +103,33 @@ async def process_voice(message: Message):
                     temperature=0.2,
                 )
                 break
-            except Exception as err:
-                last_error = str(err)
-                print(f"Ошибка с моделью {model_name}: {err}")
+            except Exception as e:
+                last_err = str(e)
                 continue
 
         if not completion:
-            raise Exception(f"Ошибка Groq: {last_error}")
-
+            raise Exception(f"Ни одна из доступных моделей не ответила. Ошибка: {last_err}")
 
         ai_response = completion.choices[0].message.content.strip()
 
+        # Очистка от markdown-тегов при необходимости
         if "```" in ai_response:
-            ai_response = (
-                ai_response.replace("```json", "").replace("```", "").strip()
-            )
+            ai_response = ai_response.replace("```json", "").replace("```", "").strip()
 
         data = json.loads(ai_response)
 
+        # Удаляем временный файл
         if os.path.exists(local_filename):
             os.remove(local_filename)
 
+        # 5. Ответ пользователю
         await status_msg.edit_text(
             f"✅ **Голосовое сообщение успешно обработано!**\n\n"
             f"📝 **Текст сообщения:**\n_{recognized_text}_",
             parse_mode="Markdown",
         )
 
+        # 6. Отправка карточки администратору
         admin_card = (
             f"🚨 **НОВАЯ ГОЛОСОВАЯ ЗАЯВКА**\n\n"
             f"👤 **От:** {message.from_user.full_name} (@{message.from_user.username or 'нет'})\n"
@@ -145,7 +150,7 @@ async def process_voice(message: Message):
             os.remove(local_filename)
 
 
-# Веб-сервер для прохождения проверки портов Render
+# Веб-сервер для прохождения портов Render (Free Web Service)
 async def handle_ping(request):
     return web.Response(text="Voice AI Bot is running!")
 
@@ -160,6 +165,7 @@ async def start_web_server():
     await site.start()
 
 
+# Точка входа
 async def main():
     print("🚀 Голосовой ИИ-бот запущен!")
     await asyncio.gather(

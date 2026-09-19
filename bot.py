@@ -81,16 +81,14 @@ async def process_voice(message: Message):
 - "urgency": срочность (Высокая, Средняя, Обычная)
 """
 
-                # Актуальные действующие модели Groq
+                        # Только 100% стабильные Production-модели Groq (без preview)
         candidate_models = [
             "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "llama-3.2-3b-preview",
-            "llama-3.2-1b-preview",
+            "llama-3.1-8b-instant"
         ]
 
         completion = None
-        last_error = "Неизвестная ошибка"
+        last_error = ""
 
         for model_name in candidate_models:
             try:
@@ -102,11 +100,12 @@ async def process_voice(message: Message):
                 break
             except Exception as err:
                 last_error = str(err)
-                print(f"Модель {model_name} пропущена: {err}")
+                print(f"Ошибка с моделью {model_name}: {err}")
                 continue
 
         if not completion:
             raise Exception(f"Ошибка Groq: {last_error}")
+
 
         ai_response = completion.choices[0].message.content.strip()
 
